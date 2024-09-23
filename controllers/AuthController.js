@@ -68,19 +68,22 @@ export const login = async (req, res, next) => {
 
 export const getUserInfo = async (req, res, next) => {
     try {
-        const userData = await User.findById(req.userId);
-        if (!userData) {
-            return res.status(404).send("User with given id not found")
-        }
+        // Buscar el usuario y popular los amigos
+        const userData = await User.findById(req.userId).populate('friends', 'username email');
         
+        if (!userData) {
+            return res.status(404).send("User with given id not found");
+        }
+
         return res.status(200).json({
             id: userData.id,
             email: userData.email,
             username: userData.username,
-            profileSetup: userData.profileSetup
+            profileSetup: userData.profileSetup,
+            friends: userData.friends // Añadir los amigos a la respuesta
         });
 
     } catch (error) {
         return res.status(500).send("Internal Server Error");
     }
-}
+};
