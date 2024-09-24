@@ -23,7 +23,15 @@ const userSchema = new mongoose.Schema({
     profileSetup: {
         type: String,
         default: false
-    }
+    },
+    friends: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Users'
+    }],
+    matchHistory: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Match'
+    }]
 });
 
 userSchema.pre("save", async function(next){

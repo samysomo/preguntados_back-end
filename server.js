@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Server } from 'socket.io';
 import authRoutes from './routes/AuthRoutes.js';
+import matchRoutes from './routes/MatchRoutes.js';
+import userRoutes from './routes/UserRoutes.js';
 
 dotenv.config();
 
@@ -26,6 +28,8 @@ app.use(cookieParser());
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
+app.use('/api/matches', matchRoutes);
+app.use('/api/users', userRoutes);
 
 const server = createServer(app);
 const io = new Server(server, {

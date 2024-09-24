@@ -19,7 +19,7 @@ export const signup = async (req, res, next) => {
         res.cookie("jwt", createToken(email, user.id), {
             maxAge,
             secure: true,
-            sameSize: "None",
+            sameSize: "None",   
         });
         return res.status(201).json({user: {
             id: user.id,
@@ -68,19 +68,27 @@ export const login = async (req, res, next) => {
 
 export const getUserInfo = async (req, res, next) => {
     try {
-        const userData = await User.findById(req.userId);
+        // Buscar el usuario y popular los amigos
+        const userData = await User.findById(req.userId).populate('friends', 'username');
+
         if (!userData) {
-            return res.status(404).send("User with given id not found")
+            return res.status(404).json({ message: "User with given id not found" }); // Cambiado a 404
         }
-        
+
+        // Devuelve la información del usuario
         return res.status(200).json({
-            id: userData.id,
-            email: userData.email,
-            username: userData.username,
-            profileSetup: userData.profileSetup
+            user: {
+                id: userData.id,
+                email: userData.email,
+                username: userData.username,
+                profileSetup: userData.profileSetup,
+                friends: userData.friends // Añadir los amigos a la respuesta
+            }
         });
 
     } catch (error) {
-        return res.status(500).send("Internal Server Error");
+        console.error("Error fetching user info:", error); // Log para depuración
+        return res.status(500).json({ message: "Internal Server Error" }); // Mensaje de error estructurado
     }
-}
+};
+
