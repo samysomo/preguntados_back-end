@@ -14,7 +14,7 @@ const matchSchema = new mongoose.Schema({
   },
   questionsAnswered: [{
     player: { type: mongoose.Schema.Types.ObjectId, ref: 'Users' },
-    question: { type: mongoose.Schema.Types.ObjectId, ref: 'Questions' },
+    question: { type: mongoose.Schema.Types.ObjectId, ref: 'Question' },
     correct: { type: Boolean, required: true },
   }],
   correctAnswersStreak: { // Contador de respuestas correctas consecutivas por jugador

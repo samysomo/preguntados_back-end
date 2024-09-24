@@ -18,11 +18,13 @@ export const addFriend = async (req, res) => {
     }
 
     // Agregar el amigo a la lista de ambos usuarios
-    user.friends.push(friendId);
-    await user.save();
+    await User.findByIdAndUpdate(userId, {
+      $addToSet: { friends: friendId } // Solo añade el amigo sin modificar otros campos
+    });
 
-    friend.friends.push(userId);
-    await friend.save();
+    await User.findByIdAndUpdate(friendId, {
+      $addToSet: { friends: userId } // Solo añade el amigo sin modificar otros campos
+    });
 
     res.status(200).json({ message: 'Friend added successfully' });
   } catch (error) {
@@ -44,4 +46,22 @@ export const getMatchHistory = async (req, res) => {
     } catch (error) {
         res.status(500).send('Error fetching match history');
     }
+};
+
+export const getUserFriends = async (req, res) => {
+  try {
+      // Buscar el usuario y popular los amigos
+      const userData = await User.findById(req.userId).populate('friends', 'username email');
+      
+      if (!userData) {
+          return res.status(404).send("User with given id not found");
+      }
+
+      return res.status(200).json({
+          friends: userData.friends // Añadir los amigos a la respuesta
+      });
+
+  } catch (error) {
+      return res.status(500).send("Internal Server Error");
+  }
 };

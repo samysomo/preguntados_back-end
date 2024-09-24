@@ -1,96 +1,111 @@
 import Match from '../models/MatchModel.js';
+import User from '../models/UserModel.js';
 import Question from '../models/QuestionModel.js';
 import Theme from '../models/ThemeModel.js';
 
 export const createMatch = async (req, res) => {
-  const { player1Id, player2Id } = req.body;
+  const { player2Id } = req.body;
 
   try {
-      // Verificar que ambos jugadores existan
-      const player1 = await User.findById(player1Id);
-      const player2 = await User.findById(player2Id);
+    const player1 = await User.findById(req.userId);
+    const player2 = await User.findById(player2Id);
 
-      if (!player1 || !player2) {
-          return res.status(404).send('One or both players not found');
-      }
+    if (!player1 || !player2) {
+      return res.status(404).send('One or both players not found');
+    }
 
-      // Crear un nuevo objeto de Match
-      const newMatch = new Match({
-          players: [player1Id, player2Id],
-          currentTurn: player1Id, // El primer jugador empieza
-          correctAnswersStreak: {
-              player1: 0,
-              player2: 0
-          },
-          completedThemes: {
-              player1: [],
-              player2: []
-          },
-          questionsAnswered: [],
-          theme: null,
-          status: 'active'
-      });
+    const newMatch = new Match({
+      players: [req.userId, player2Id],
+      currentTurn: req.userId,
+      correctAnswersStreak: {
+        player1: 0,
+        player2: 0,
+      },
+      completedThemes: {
+        player1: [],
+        player2: [],
+      },
+      questionsAnswered: [],
+      theme: null,
+      status: 'in-progress',
+    });
 
-      // Guardar la nueva partida en la base de datos
-      await newMatch.save();
+    await newMatch.save();
 
-      return res.status(201).json({
-          matchId: newMatch._id,
-          players: newMatch.players,
-          currentTurn: newMatch.currentTurn
-      });
+    return res.status(201).json({
+      matchId: newMatch._id,
+      players: newMatch.players,
+      currentTurn: newMatch.currentTurn,
+    });
 
   } catch (error) {
-      console.error(error);
-      return res.status(500).send("Error creating match");
+    console.error(error);
+    return res.status(500).send("Error creating match");
   }
 };
 
-const getRandomTheme = async () => {
-    const themes = await Theme.find(); // Consultar la base de datos para obtener los temas
-    const themeNames = themes.map(theme => theme.name); // Obtener solo los nombres de los temas
-    return themeNames[Math.floor(Math.random() * themeNames.length)];
+export const getMatch = async (req, res) => {
+  const { matchId } = req.params;
+  
+  try {
+    const match = await Match.findById(matchId)
+      .populate('players') 
+      .populate('questionsAnswered.question'); 
+
+    if (!match) {
+      return res.status(404).send('Match not found');
+    }
+
+    res.status(200).json(match);
+    
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Error fetching match details");
+  }
 };
 
 export const getNextQuestion = async (req, res) => {
   const { matchId } = req.params;
+  const { selectedTheme } = req.body; // Recibir el tema del cuerpo de la solicitud
+
   try {
     const match = await Match.findById(matchId).populate('currentTurn');
-    if (!match) return res.status(404).send('Match not found');
+    
+    if (!match) {
+      return res.status(404).send('Match not found');
+    }
 
-    // Determinar qué jugador es (player1 o player2)
     const currentPlayerKey = match.players[0].toString() === req.userId ? 'player1' : 'player2';
-
-    // Verificar si el jugador tiene 3 respuestas correctas consecutivas para lanzar la pregunta decisiva
+    
+    // Comprobación para ver si el jugador actual ha respondido 3 preguntas correctamente
     if (match.correctAnswersStreak[currentPlayerKey] === 3) {
-      // El jugador selecciona un tema para su pregunta decisiva
-      const { selectedTheme } = req.body; // Este campo vendría del frontend
+      // Obtener una pregunta decisiva para el tema seleccionado
       const decisiveQuestion = await Question.aggregate([
-        { $match: { theme: selectedTheme } },
+        { $match: { theme: selectedTheme } }, // Usar el tema enviado
         { $sample: { size: 1 } }
       ]);
-      match.theme = selectedTheme; // Guardamos el tema de la pregunta decisiva
+
+      match.theme = selectedTheme; // Guardar el tema seleccionado en el match
       await match.save();
 
       return res.status(200).json({ decisive: true, question: decisiveQuestion[0] });
-    } 
+    }
 
-    // Si no es una pregunta decisiva, girar la ruleta normalmente
-    const randomTheme = getRandomTheme();
-    match.theme = randomTheme;
+    // Si el jugador no ha llegado a 3 respuestas correctas, usar el tema enviado en lugar de un tema aleatorio
+    match.theme = selectedTheme; // Guardar el tema seleccionado en el match
 
-    // Si la ruleta cayó en "corona", se salta a la pregunta decisiva
-    if (randomTheme === 'corona') {
+    // Si el tema es 'corona', se maneja de manera especial
+    if (selectedTheme === 'corona') {
       return res.status(200).json({ corona: true, nextDecisive: true });
     }
 
-    // Obtener una pregunta normal de un tema aleatorio
     const question = await Question.aggregate([
-      { $match: { theme: randomTheme } },
+      { $match: { category: selectedTheme } }, // Obtener una pregunta basada en el tema seleccionado
       { $sample: { size: 1 } }
     ]);
-
+    
     await match.save();
+
     res.status(200).json({ question: question[0] });
     
   } catch (error) {
@@ -98,8 +113,9 @@ export const getNextQuestion = async (req, res) => {
   }
 };
 
+
 export const submitAnswer = async (req, res) => {
-    const { matchId, questionId, isCorrect, isDecisive } = req.body; // `isDecisive` indica si es una pregunta decisiva
+    const { matchId, questionId, isCorrect, isDecisive } = req.body;
     const playerId = req.userId;
 
     try {
@@ -109,56 +125,37 @@ export const submitAnswer = async (req, res) => {
         const currentPlayerKey = match.players[0].toString() === playerId ? 'player1' : 'player2';
         const otherPlayerKey = currentPlayerKey === 'player1' ? 'player2' : 'player1';
 
-        // Registrar la respuesta
         match.questionsAnswered.push({
-        player: playerId,
-        question: questionId,
-        correct: isCorrect,
+            player: playerId,
+            question: questionId,
+            correct: isCorrect,
         });
 
         if (isCorrect) {
-        if (isDecisive) {
-            // Si es una pregunta decisiva
-            const { theme } = match;  // Se obtiene el tema de la pregunta decisiva
-            match.completedThemes[currentPlayerKey].push(theme); // Añadir el tema completado al jugador
-
-            // Verificar si el jugador ha completado todos los temas
-            if (match.completedThemes[currentPlayerKey].length === themes.length) {
-            match.status = 'completed';
-            match.winner = playerId;
+            if (isDecisive) {
+                const { theme } = match;
+                match.completedThemes[currentPlayerKey].push(theme);
+                if (match.completedThemes[currentPlayerKey].length === themes.length) {
+                    match.status = 'completed';
+                    match.winner = playerId;
+                }
+                await User.updateMany({ _id: { $in: match.players } }, { $push: { matchHistory: match._id } });
+                match.correctAnswersStreak[currentPlayerKey] = 0;
+            } else {
+                match.correctAnswersStreak[currentPlayerKey] += 1;
             }
-            
-            if (match.status === 'completed') {
-              // Agregar la partida al historial de ambos jugadores
-              await User.findByIdAndUpdate(match.players[0], { $push: { matchHistory: match._id } });
-              await User.findByIdAndUpdate(match.players[1], { $push: { matchHistory: match._id } });
-            }
-
-            // Reiniciar el conteo de respuestas correctas consecutivas después de una pregunta decisiva
-            match.correctAnswersStreak[currentPlayerKey] = 0;
         } else {
-            // Si es una pregunta normal, incrementar el contador
-            match.correctAnswersStreak[currentPlayerKey] += 1;
-
-            // Si ha respondido 3 preguntas correctas, puede optar por una pregunta decisiva en su siguiente turno
-            if (match.correctAnswersStreak[currentPlayerKey] === 3) {
-            // Aquí podrías notificar que está listo para una pregunta decisiva
+            if (isDecisive) {
+                match.correctAnswersStreak[currentPlayerKey] = 0;
             }
-        }
-        } else {
-        if (isDecisive) {
-            // Si falla una pregunta decisiva, se reinicia el conteo de correctas
-            match.correctAnswersStreak[currentPlayerKey] = 0;
-        }
-        
-        // Si la respuesta es incorrecta, se pierde el turno
-        match.currentTurn = match.players.find(p => p.toString() !== playerId);
+            match.currentTurn = match.players.find(p => p.toString() !== playerId);
         }
 
         await match.save();
         res.status(200).json({ match });
 
     } catch (error) {
+        console.error(error);
         res.status(500).send("Error submitting answer");
     }
 };
