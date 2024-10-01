@@ -1,10 +1,10 @@
 import mongoose from 'mongoose';
 
 const matchSchema = new mongoose.Schema({
-  players: [{ 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Users' 
-  }],
+  players: { 
+    player1: { type: mongoose.Schema.Types.ObjectId, ref: 'Users' },
+    player2: { type: mongoose.Schema.Types.ObjectId, ref: 'Users' },
+  },
   currentTurn: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'Users' 

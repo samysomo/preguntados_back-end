@@ -29,7 +29,7 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use('/api/matches', matchRoutes);
-app.use('/api/users', userRoutes);
+app.use('/api/users', userRoutes); 
 
 const server = createServer(app);
 const io = new Server(server, {

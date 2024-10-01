@@ -15,7 +15,10 @@ export const createMatch = async (req, res) => {
     }
 
     const newMatch = new Match({
-      players: [req.userId, player2Id],
+      players: {
+        player1: req.userId,
+        player2: player2Id,
+      },
       currentTurn: req.userId,
       correctAnswersStreak: {
         player1: 0,
@@ -49,8 +52,9 @@ export const getMatch = async (req, res) => {
   
   try {
     const match = await Match.findById(matchId)
-      .populate('players') 
-      .populate('questionsAnswered.question'); 
+    .populate('players.player1') // Popula player1
+    .populate('players.player2') // Popula player2
+    .populate('questionsAnswered.question');
 
     if (!match) {
       return res.status(404).send('Match not found');
@@ -66,96 +70,137 @@ export const getMatch = async (req, res) => {
 
 export const getNextQuestion = async (req, res) => {
   const { matchId } = req.params;
-  const { selectedTheme } = req.body; // Recibir el tema del cuerpo de la solicitud
+  const { selectedTheme } = req.body;
 
   try {
     const match = await Match.findById(matchId).populate('currentTurn');
     
     if (!match) {
+      console.log('Match not found');
       return res.status(404).send('Match not found');
     }
 
-    const currentPlayerKey = match.players[0].toString() === req.userId ? 'player1' : 'player2';
-    
-    // Comprobación para ver si el jugador actual ha respondido 3 preguntas correctamente
-    if (match.correctAnswersStreak[currentPlayerKey] === 3) {
-      // Obtener una pregunta decisiva para el tema seleccionado
+    // Determinar si el jugador actual es player1 o player2
+    const currentPlayerKey = match.players.player1.toString() === req.userId ? 'player1' : 'player2';
+    console.log(`Current player key: ${currentPlayerKey}`);
+    console.log(`Current correctAnswersStreak for ${currentPlayerKey}: ${match.correctAnswersStreak[currentPlayerKey]}`);
+
+    // Comprobar si la racha es 3 para determinar si la siguiente pregunta es decisiva
+    if (match.correctAnswersStreak[currentPlayerKey] == 3) {
+      console.log(`Decisive question triggered for ${currentPlayerKey} with theme: ${selectedTheme}`);
+
       const decisiveQuestion = await Question.aggregate([
-        { $match: { theme: selectedTheme } }, // Usar el tema enviado
+        { $match: { category: selectedTheme } },
         { $sample: { size: 1 } }
       ]);
 
-      match.theme = selectedTheme; // Guardar el tema seleccionado en el match
+      match.theme = selectedTheme;
       await match.save();
 
+      console.log(`Decisive question selected: ${decisiveQuestion[0]._id}`);
       return res.status(200).json({ decisive: true, question: decisiveQuestion[0] });
     }
 
-    // Si el jugador no ha llegado a 3 respuestas correctas, usar el tema enviado en lugar de un tema aleatorio
-    match.theme = selectedTheme; // Guardar el tema seleccionado en el match
-
-    // Si el tema es 'corona', se maneja de manera especial
-    if (selectedTheme === 'corona') {
-      return res.status(200).json({ corona: true, nextDecisive: true });
-    }
-
+    // Si no es una pregunta decisiva, seleccionar una pregunta regular
+    match.theme = selectedTheme;
     const question = await Question.aggregate([
-      { $match: { category: selectedTheme } }, // Obtener una pregunta basada en el tema seleccionado
+      { $match: { category: selectedTheme } },
       { $sample: { size: 1 } }
     ]);
+
+    console.log(`Regular question selected for ${currentPlayerKey}: ${question[0]._id}`);
     
     await match.save();
-
     res.status(200).json({ question: question[0] });
     
   } catch (error) {
+    console.error('Error fetching next question:', error);
     res.status(500).send("Error fetching next question");
   }
 };
 
 
 export const submitAnswer = async (req, res) => {
-    const { matchId, questionId, isCorrect, isDecisive } = req.body;
-    const playerId = req.userId;
+  const { matchId, questionId, isCorrect, isDecisive } = req.body;
+  const playerId = req.userId;
 
-    try {
-        const match = await Match.findById(matchId);
-        if (!match) return res.status(404).send('Match not found');
+  try {
+      const match = await Match.findById(matchId);
+      if (!match) return res.status(404).send('Match not found');
 
-        const currentPlayerKey = match.players[0].toString() === playerId ? 'player1' : 'player2';
-        const otherPlayerKey = currentPlayerKey === 'player1' ? 'player2' : 'player1';
+      const currentPlayerKey = match.players.player1.toString() === playerId ? 'player1' : 'player2';
+      const otherPlayerKey = currentPlayerKey === 'player1' ? 'player2' : 'player1';
 
-        match.questionsAnswered.push({
-            player: playerId,
-            question: questionId,
-            correct: isCorrect,
-        });
+      console.log(`Player ${playerId} answered question ${questionId}: isCorrect=${isCorrect}, isDecisive=${isDecisive}`);
 
-        if (isCorrect) {
-            if (isDecisive) {
-                const { theme } = match;
-                match.completedThemes[currentPlayerKey].push(theme);
-                if (match.completedThemes[currentPlayerKey].length === themes.length) {
-                    match.status = 'completed';
-                    match.winner = playerId;
-                }
-                await User.updateMany({ _id: { $in: match.players } }, { $push: { matchHistory: match._id } });
-                match.correctAnswersStreak[currentPlayerKey] = 0;
-            } else {
-                match.correctAnswersStreak[currentPlayerKey] += 1;
-            }
-        } else {
-            if (isDecisive) {
-                match.correctAnswersStreak[currentPlayerKey] = 0;
-            }
-            match.currentTurn = match.players.find(p => p.toString() !== playerId);
-        }
+      match.questionsAnswered.push({
+          player: playerId,
+          question: questionId,
+          correct: isCorrect,
+      });
 
-        await match.save();
-        res.status(200).json({ match });
+      // Log the current state of correctAnswersStreak before any updates
+      console.log(`Before update: ${currentPlayerKey} streak: ${match.correctAnswersStreak[currentPlayerKey]}`);
 
-    } catch (error) {
-        console.error(error);
-        res.status(500).send("Error submitting answer");
-    }
+      if (isCorrect) {
+          if (isDecisive) {
+              const { theme } = match;
+              match.completedThemes[currentPlayerKey].push(theme);
+              if (match.completedThemes[currentPlayerKey].length === 6) {
+                  match.status = 'completed';
+                  match.winner = playerId;
+              }
+              await User.updateMany({ _id: { $in: Object.values(match.players) } }, { $push: { matchHistory: match._id } });
+              match.correctAnswersStreak[currentPlayerKey] = 0;
+          } else {
+              match.correctAnswersStreak[currentPlayerKey] += 1;
+          }
+      } else {
+          if (isDecisive) {
+              match.correctAnswersStreak[currentPlayerKey] = 0;
+          }
+          match.currentTurn = match.players[otherPlayerKey]; // Cambia el turno al otro jugador
+      }
+
+      // Log the updated streak after processing the answer
+      console.log(`After update: ${currentPlayerKey} streak: ${match.correctAnswersStreak[currentPlayerKey]}`);
+
+      await match.save();
+      res.status(200).json({ match });
+
+  } catch (error) {
+      console.error(error);
+      res.status(500).send("Error submitting answer");
+  }
+};
+
+
+export const ongoingMatches = async (req, res) => {
+  try {
+      console.log('Fetching ongoing matches for user:', req.userId);
+      const matches = await Match.find({
+          $or: [
+              { 'players.player1': req.userId },
+              { 'players.player2': req.userId }
+          ],
+          status: 'in-progress',
+      }).populate('players.player1 players.player2');
+
+      console.log('Found ongoing matches:', matches);
+      res.status(200).json(matches);
+  } catch (error) {
+      console.error('Error fetching ongoing matches:', error);
+      res.status(500).send("Error fetching ongoing matches");
+  }
+};
+
+export const getPlayer = async (req, res) => {
+  try {
+      const player = await User.findById(req.userId);
+      if (!player) return res.status(404).send('Player not found');
+      res.status(200).json(player);
+  } catch (error) {
+      console.error(error);
+      res.status(500).send("Error fetching player details");
+  }
 };
