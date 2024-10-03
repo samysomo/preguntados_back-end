@@ -173,6 +173,31 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
+export const getCompletedThemes = async (req, res) => {
+  const { matchId } = req.params; // Extrae el matchId del cuerpo de la solicitud
+
+  try {
+    // Encuentra el partido usando matchId
+    const match = await Match.findById(matchId);
+
+    if (!match) {
+      return res.status(404).send('Match not found');
+    }
+
+    // Determinar qué jugador es el que hace la solicitud
+    const playerKey = match.players.player1.toString() === req.userId ? 'player1' : 'player2';
+
+    // Obtener los temas completados para el jugador
+    const completedThemes = match.completedThemes[playerKey] || [];
+
+    res.status(200).json({ completedThemes });
+    
+  } catch (error) {
+    console.error('Error fetching completed themes:', error);
+    res.status(500).send("Error fetching completed themes");
+  }
+};
+
 
 export const ongoingMatches = async (req, res) => {
   try {
