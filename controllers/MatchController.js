@@ -68,51 +68,59 @@ export const getMatch = async (req, res) => {
   }
 };
 
-export const getNextQuestion = async (req, res) => {
+export const getStreak = async (req, res) => {
   const { matchId } = req.params;
-  const { selectedTheme } = req.body;
 
   try {
-    const match = await Match.findById(matchId).populate('currentTurn');
+    const match = await Match.findById(matchId);
     
     if (!match) {
       console.log('Match not found');
       return res.status(404).send('Match not found');
     }
 
-    // Determinar si el jugador actual es player1 o player2
     const currentPlayerKey = match.players.player1.toString() === req.userId ? 'player1' : 'player2';
-    console.log(`Current player key: ${currentPlayerKey}`);
-    console.log(`Current correctAnswersStreak for ${currentPlayerKey}: ${match.correctAnswersStreak[currentPlayerKey]}`);
 
-    // Comprobar si la racha es 3 para determinar si la siguiente pregunta es decisiva
-    if (match.correctAnswersStreak[currentPlayerKey] == 3) {
-      console.log(`Decisive question triggered for ${currentPlayerKey} with theme: ${selectedTheme}`);
+    // Verificar si la próxima pregunta es decisiva basándose en la racha actual
+    const nextDecisive = match.correctAnswersStreak[currentPlayerKey] === 3; // Si la racha es 2, la siguiente es decisiva
 
-      const decisiveQuestion = await Question.aggregate([
-        { $match: { category: selectedTheme } },
-        { $sample: { size: 1 } }
-      ]);
+    res.status(200).json({ nextDecisive });
 
-      match.theme = selectedTheme;
-      await match.save();
+  } catch (error) {
+    console.error('Error fetching streak:', error);
+    res.status(500).send("Error fetching streak");
+  }
+};
 
-      console.log(`Decisive question selected: ${decisiveQuestion[0]._id}`);
-      return res.status(200).json({ decisive: true, question: decisiveQuestion[0] });
+export const getNextQuestion = async (req, res) => {
+  const { matchId } = req.params;
+  const { selectedTheme } = req.body;  // selectedTheme se pasa en el body
+
+  try {
+    const match = await Match.findById(matchId);
+    
+    if (!match) {
+      console.log('Match not found');
+      return res.status(404).send('Match not found');
     }
 
-    // Si no es una pregunta decisiva, seleccionar una pregunta regular
-    match.theme = selectedTheme;
+    const currentPlayerKey = match.players.player1.toString() === req.userId ? 'player1' : 'player2';
+
+    // Pregunta regular
     const question = await Question.aggregate([
-      { $match: { category: selectedTheme } },
+      { $match: { category: selectedTheme } }, // Usar la categoría seleccionada
       { $sample: { size: 1 } }
     ]);
 
-    console.log(`Regular question selected for ${currentPlayerKey}: ${question[0]._id}`);
-    
+    // Verificar si la siguiente pregunta será decisiva
+    const nextDecisive = match.correctAnswersStreak[currentPlayerKey] === 3; // Si la racha actual es 2, la próxima es decisiva
+
+    match.theme = selectedTheme; // Guardar el tema seleccionado
     await match.save();
-    res.status(200).json({ question: question[0] });
-    
+
+    // Enviar la pregunta junto con nextDecisive
+    res.status(200).json({ question: question[0], nextDecisive });
+
   } catch (error) {
     console.error('Error fetching next question:', error);
     res.status(500).send("Error fetching next question");
@@ -131,39 +139,30 @@ export const submitAnswer = async (req, res) => {
       const currentPlayerKey = match.players.player1.toString() === playerId ? 'player1' : 'player2';
       const otherPlayerKey = currentPlayerKey === 'player1' ? 'player2' : 'player1';
 
-      console.log(`Player ${playerId} answered question ${questionId}: isCorrect=${isCorrect}, isDecisive=${isDecisive}`);
-
       match.questionsAnswered.push({
           player: playerId,
           question: questionId,
           correct: isCorrect,
       });
 
-      // Log the current state of correctAnswersStreak before any updates
-      console.log(`Before update: ${currentPlayerKey} streak: ${match.correctAnswersStreak[currentPlayerKey]}`);
-
       if (isCorrect) {
           if (isDecisive) {
-              const { theme } = match;
+              const { theme } = match; // Tema decisivo seleccionado
               match.completedThemes[currentPlayerKey].push(theme);
+
               if (match.completedThemes[currentPlayerKey].length === 6) {
                   match.status = 'completed';
                   match.winner = playerId;
               }
               await User.updateMany({ _id: { $in: Object.values(match.players) } }, { $push: { matchHistory: match._id } });
-              match.correctAnswersStreak[currentPlayerKey] = 0;
+              match.correctAnswersStreak[currentPlayerKey] = 0; // Reiniciar la racha después de la pregunta decisiva
           } else {
-              match.correctAnswersStreak[currentPlayerKey] += 1;
+              match.correctAnswersStreak[currentPlayerKey] += 1; // Incrementar la racha en preguntas normales
           }
       } else {
-          if (isDecisive) {
-              match.correctAnswersStreak[currentPlayerKey] = 0;
-          }
-          match.currentTurn = match.players[otherPlayerKey]; // Cambia el turno al otro jugador
+          match.correctAnswersStreak[currentPlayerKey] = 0; // Reiniciar la racha si la respuesta es incorrecta
+          match.currentTurn = match.players[otherPlayerKey]; // Cambiar el turno al otro jugador
       }
-
-      // Log the updated streak after processing the answer
-      console.log(`After update: ${currentPlayerKey} streak: ${match.correctAnswersStreak[currentPlayerKey]}`);
 
       await match.save();
       res.status(200).json({ match });
@@ -191,16 +190,5 @@ export const ongoingMatches = async (req, res) => {
   } catch (error) {
       console.error('Error fetching ongoing matches:', error);
       res.status(500).send("Error fetching ongoing matches");
-  }
-};
-
-export const getPlayer = async (req, res) => {
-  try {
-      const player = await User.findById(req.userId);
-      if (!player) return res.status(404).send('Player not found');
-      res.status(200).json(player);
-  } catch (error) {
-      console.error(error);
-      res.status(500).send("Error fetching player details");
   }
 };
