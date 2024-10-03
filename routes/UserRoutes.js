@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { addFriend, getMatchHistory, getUserFriends } from '../controllers/UserController.js';
+import { addFriend, getMatchHistory, getUserFriends, getUsers } from '../controllers/UserController.js';
 import { verifyToken } from '../middlewares/AuthMiddleware.js';
 
 const userRoutes = Router();
@@ -11,5 +11,7 @@ userRoutes.post('/add-friend', verifyToken, addFriend);
 userRoutes.get('/match-history', verifyToken, getMatchHistory);
 
 userRoutes.get('/friends', verifyToken, getUserFriends);
+
+userRoutes.get('/get-users', verifyToken, getUsers);
 
 export default userRoutes;

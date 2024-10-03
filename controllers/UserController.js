@@ -1,5 +1,15 @@
 import User from '../models/UserModel.js';
 
+export const getUsers = async (req, res) => {
+  try {
+    const users = await User.find({}, '_id username email');
+
+    res.status(200).json({ users });
+  } catch (error) {
+    res.status(500).send('Error fetching users');
+  }
+}
+
 export const addFriend = async (req, res) => {
   const { friendId } = req.body;
   const userId = req.userId; // Esto viene del token de autenticación
